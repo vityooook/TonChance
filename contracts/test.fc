@@ -1,0 +1,67 @@
+#include "imports/stdlib.fc";
+
+global cell list_participates;
+global int jackpot;
+
+() load_data() impure inline {
+    var ds = get_data().begin_parse();
+    list_participates = ds~load_dict();
+    jackpot = ds~load_coins();
+}
+
+() save_data() impure {
+    set_data(
+        begin_cell()
+            .store_dict(list_participates)
+            .store_coins(jackpot)
+        .end_cell()
+    );
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    slice cs = in_msg_full.begin_parse();
+    int flags = cs~load_uint(4);
+
+    if (flags & 1) { ;; ignore all bounced messages
+        return ();
+    }
+
+    slice sender_address = cs~load_msg_addr();
+    ~dump(sender_address);
+
+    int op = 0;
+    load_data();
+
+    if (in_msg_body.slice_empty?() == false) {
+        op = in_msg_body~load_uint(32);
+    }
+
+    if (op == 0) {
+        jackpot += msg_value;
+        list_participates~udict_set(64, jackpot, sender_address);
+        save_data();
+        return ();
+    }
+
+    if (op == 1) {
+        randomize_lt();
+        int r = rand(jackpot);
+        ~dump(r);
+        int flag = 0;
+   
+        do {
+            var (ticket_number, value, _) = list_participates~udict::delete_get_min(64);
+            ~dump(ticket_number);
+            if (r < ticket_number) {
+                slice winner = value;
+                ~dump(winner);
+                flag = -1;
+            }
+        } until (flag == -1);
+
+        jackpot = 0;
+        list_participates = new_dict();
+        save_data();
+        return ();
+    }
+}
