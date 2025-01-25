@@ -1,6 +1,11 @@
 #include "imports/stdlib.fc";
-;; нужно продумать если один и тот же участник делает две ставки
-;; сделать если вылетает ошибка возращать участнику сообщение 
+;; сделать если вылетает ошибка возращать участнику сообщение
+;; добавить децентрализацию, чтобы каждый мог запускать игру
+;; добавить коммиссии для людей которые вызывают контракт 
+;; также нужно добавить если 1 участник, то все деньги возращаются
+
+;; написать в конце все гет методы
+
 
 ;; storage
 global cell storage::list_participates; ;; ref
@@ -11,10 +16,11 @@ global int storage::min_bet; ;; 124
 global int storage::max_bet; ;; 124
 global int storage::max_participates; ;; 8
 global int storage::participates_number; ;; 8 
-;; global int storage::public_key; ;; 256 ;; потом добавлю
-global int storage::commission_game; ;; 16
-global int storage::stop_game; ;; true = -1 or false = 0 ;; 2
-global int storage::game_number; ;; 32
+;; global int storage::public_key; ;; 256
+global int storage::commission_game_admin; ;; 16
+global int storage::commission_game_runners; ;; 16
+global int storage::stop_game_on_round; ;; 32 
+global int storage::game_round; ;; 32
 global int storage::game_start_time; ;; 32
 global slice storage::last_winner_address; ;; 267
 ;; const 
@@ -100,7 +106,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     }
 
     if (op == 0) { ;; проверка на ставку и на количество участников
-        throw_if(666, storage::stop_game);
+        throw_if(666, storage::game_round == storage::stop_game_on_round);
         throw_if(777, (storage::min_bet > msg_value) | (storage::max_bet < msg_value));
         throw_if(888, storage::participates_number > storage::max_participates);
 
@@ -119,7 +125,6 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
         }
 
         storage::jackpot += msg_value;
-        ~dump(storage::jackpot);
         save_data();
         return ();
     }
@@ -128,19 +133,30 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 
     throw_unless(999, equal_slices_bits(sender_address, storage::admin_address));
 
-    if (op == 1) { ;; stop game 
-        storage::stop_game = in_msg_body~load_int(2);
+    if (op == 1) { ;; stop game
+        storage::stop_game_on_round = in_msg_body~load_uint(32);
         save_data();
         return ();
     }
 
-    if (op == 2) { ;; stop game (нужно подумать как правильно останавливать игру если пользователи уже сделали ставку)
-        storage::game_time = in_msg_body~load_uint(32); ;; sec
+    if (op == 2) { ;; change basic sittings 
+        storage::game_time = in_msg_body~load_uint(16);
+        storage::min_bet = in_msg_body~load_coins();
+        storage::max_bet = in_msg_body~load_coins();
+        storage::max_participates = in_msg_body~load_uint(8);
+        storage::commission_game = in_msg_body~load_uint(16);
+        storage::game_start_time = in_msg_body~load_uint(32);
         save_data();
         return ();
     }
 
-    if (op == 3) { ;; update code and data (зависит от остановки игры)
+    if (op == 3) { ;; change admin
+        storage::admin_address = in_msg_body~load_msg_addr();
+        save_data();
+        return ();
+    }
+
+    if (op == 4) { ;; update code and data
         (cell new_data, cell new_code) = (in_msg_body~load_ref(), in_msg_body~load_ref());
         set_data(new_data);
         set_code(new_code);
@@ -151,33 +167,29 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 
 () recv_external(slice in_msg_body) impure { ;; finish and start new game
     cell msg_inner = in_msg_body~load_ref();
-    ;; slice signature = in_msg_body~load_bits(512);
-    ;; in_msg_body.end_parse();
+    slice signature = in_msg_body~load_bits(512);
+    in_msg_body.end_parse();
     int msg_inner_hash = msg_inner.cell_hash();
 
     load_data();
 
-    ;; throw_unless(7777, check_signature(msg_inner_hash, signature, storage::public_key));
+    throw_unless(7777, check_signature(msg_inner_hash, signature, storage::public_key));
 
-    slice msg_inner_slice = msg_inner.begin_parse(); ;; parse data from ex message 
-    ;; добавить децентрализацию, чтобы каждый мог запускать игру 
+    slice msg_inner_slice = msg_inner.begin_parse();  
     int game_number = msg_inner_slice~load_uint(32);
-    msg_inner_slice.end_parse();
 
-    ;; throw_unless(111, (storage::game_start_time + storage::game_time) <= now());
-    ;; throw_unless(222, game_number == storage::game_number);
-    throw_if(333, storage::stop_game);
+    throw_unless(222, game_number == storage::game_number);
+    throw_if(666, storage::game_round == storage::stop_game_on_round);
+    throw_unless(111, (storage::game_start_time + storage::game_time) <= now());
 
     accept_message();
 
-
     custom_randomize();
     randomize_lt();
-
     int r = rand(storage::jackpot);
+
     int flag = 0;
     int sum_bet = 0;
-    ~dump(r);
 
     do {
         var (_, value, _) = storage::list_participates~udict_delete_get_min_ref?(256);
@@ -191,9 +203,22 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
         }
     } until (flag == -1);
 
-    ;; считаем коммисиию
+    ;; сначала отправляем деньги если есть валидатор 
+    ;; потом отправляем деньги владельцам
+    ;; финале отправляем деньги победителю 
 
+    if (in_msg_body.slice_empty?() == false) {
+        slice game_runner = msg_inner_slice~load_msg_addr();
+        int commission_runner = muldiv(storage::jackpot, storage::commission_game_runners, 10000); ;; добавить константу 3.2% = 320
+        storage::jackpot -= commission_runner;
+        send_raw_message(msg,mode);
+    }
 
+    int commission_admin = muldiv(storage::jackpot, storage::commission_game_admin, 10000);
+    send_raw_message(msg,mode);
+
+    raw_reserve(5, 0); ;; 0.05 ton 
+    send_raw_message(msg,mode);
 
     storage::list_participates = new_dict();
     storage::jackpot = 0;
@@ -201,6 +226,4 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     storage::game_number += 1;
     storage::game_start_time = now();
     save_data();
-
-    ~dump(storage::last_winner_address);
 }
