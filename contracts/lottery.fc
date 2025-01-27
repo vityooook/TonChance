@@ -1,33 +1,30 @@
 #include "imports/stdlib.fc";
-;; сделать если вылетает ошибка возращать участнику сообщение
-;; добавить децентрализацию, чтобы каждый мог запускать игру
-;; добавить коммиссии для людей которые вызывают контракт 
-;; также нужно добавить если 1 участник, то все деньги возращаются
 
-;; написать в конце все гет методы
-
+;; добавить возможность вывод токенов 
+;; сделать красиивые комментарии к сообщениям 
 
 ;; storage
-global cell storage::list_participates; ;; ref
-global int storage::jackpot; ;; 124
 global slice storage::admin_address; ;; 267
-global int storage::game_time; ;; 16
+global int storage::public_key; ;; 256
+
+global int storage::commission_game_admin; ;; 16
+global int storage::commission_game_runners; ;; 16
 global int storage::min_bet; ;; 124
 global int storage::max_bet; ;; 124
 global int storage::max_participates; ;; 8
 global int storage::participates_number; ;; 8 
-;; global int storage::public_key; ;; 256
-global int storage::commission_game_admin; ;; 16
-global int storage::commission_game_runners; ;; 16
-global int storage::stop_game_on_round; ;; 32 
-global int storage::game_round; ;; 32
+global int storage::game_time; ;; 32
 global int storage::game_start_time; ;; 32
+global int storage::game_round; ;; 32
+global int storage::stop_game_on_round; ;; 32 
+global int storage::jackpot; ;; 124
 global slice storage::last_winner_address; ;; 267
+global cell storage::list_participates; ;; ref
 ;; const 
 
 ;; errors 
 
-;; op-codes
+;; ===== op-codes =====
 
 ;; fifting 
 tuple get_prev_block() asm "PREVKEYBLOCK";
@@ -35,21 +32,28 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 (cell, int) udict_replace_ref?(cell dict, int key_len, int index, cell value) asm(value index dict key_len) "DICTUREPLACEREF";
 (cell, (int, cell, int)) ~udict_delete_get_min_ref?(cell dict, int key_len) asm(-> 0 2 1 3) "DICTUREMMINREF" "NULLSWAPIFNOT2";
 
+
 () load_data() impure inline {
-    slice ds = get_data().begin_parse();  ;; Bits = 1 + 32 + 267 + 267 + 267 + 1 = 835. Refs = 3.
-    storage::list_participates = ds~load_dict();
-    storage::jackpot = ds~load_coins();
+    slice ds = get_data().begin_parse(); ;; Bits = 523. Refs = 1.
     storage::admin_address = ds~load_msg_addr();
-    storage::game_time = ds~load_uint(16);
-    storage::min_bet = ds~load_coins();
-    storage::max_bet = ds~load_coins();
-    storage::max_participates = ds~load_uint(8);
-    storage::participates_number = ds~load_uint(8);
-    storage::commission_game = ds~load_uint(16);
-    storage::stop_game = ds~load_int(2);
-    storage::game_number = ds~load_uint(32);
-    storage::game_start_time = ds~load_uint(32);
-    storage::last_winner_address = ds~load_msg_addr();
+    storage::public_key = ds~load_coins();
+
+    slice ds2 = ds~load_ref().begin_parse();  ;; Bits = 815. Refs = 1.
+    storage::commission_game_admin = ds2~load_uint(16);
+    storage::commission_game_runners = ds2~load_uint(16);
+    storage::min_bet = ds2~load_coins();
+    storage::max_bet = ds2~load_coins();
+    storage::max_participates = ds2~load_uint(8);
+    storage::participates_number = ds2~load_uint(8);
+    storage::game_time = ds2~load_uint(32);
+    storage::game_start_time = ds2~load_uint(32);
+    storage::game_round = ds2~load_uint(32);
+    storage::stop_game_on_round = ds2~load_uint(32);
+    storage::jackpot = ds2~load_coins();
+    storage::last_winner_address = ds2~load_msg_addr();
+    storage::list_participates = ds2~load_dict();
+
+    ds2.end_parse();
     ds.end_parse();
 }
 
@@ -57,19 +61,24 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 () save_data() impure inline {
     set_data(
         begin_cell()
-            .store_dict(storage::list_participates)
-            .store_coins(storage::jackpot)
             .store_slice(storage::admin_address)
-            .store_uint(storage::game_time, 16)
-            .store_coins(storage::min_bet)
-            .store_coins(storage::max_bet)
-            .store_uint(storage::max_participates ,8)
-            .store_uint(storage::participates_number ,8)
-            .store_uint(storage::commission_game ,16)
-            .store_int(storage::stop_game ,2)
-            .store_uint(storage::game_number ,32)
-            .store_uint(storage::game_start_time ,32)
-            .store_slice(storage::last_winner_address)
+            .store_uint(storage::public_key, 256)
+            .store_ref( 
+                begin_cell()
+                    .store_uint(storage::commission_game_admin,16)
+                    .store_uint(storage::commission_game_runners,16)
+                    .store_coins(storage::min_bet)
+                    .store_coins(storage::max_bet)
+                    .store_uint(storage::max_participates, 8)
+                    .store_uint(storage::participates_number, 8)
+                    .store_uint(storage::game_time, 32)
+                    .store_uint(storage::game_start_time, 32)
+                    .store_uint(storage::game_round, 32)
+                    .store_uint(storage::stop_game_on_round, 32)
+                    .store_coins(storage::jackpot)
+                    .store_slice(storage::last_winner_address)
+                    .store_dict(storage::list_participates)
+                .end_cell())
         .end_cell()
     );
 }
@@ -86,7 +95,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     randomize(prev_root_hash);
 }
 
-() send_message_with_sms(slice to, int amount, slice msg, int mode) {
+() send_message_with_sms(slice to, int amount, slice msg, int mode) impure inline {
 
     cell msg = begin_cell()
         .store_uint(0x18, 6)
@@ -110,9 +119,10 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     }
 
     slice sender_address = cs~load_msg_addr();
+    
+    load_data();
 
     int op = 0;
-    load_data();
 
     if (in_msg_body.slice_empty?() == false) {
         op = in_msg_body~load_op();
@@ -128,10 +138,11 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
         if (storage::participates_number > storage::max_participates) {
             send_message_with_sms(sender_address, 0, "too many participants", 64 + 2);
         }
+        if (storage::game_start_time > now()) { ;; нужно подумать если игрок отправит деньги после игры 
+            send_message_with_sms(sender_address, 0, "the game hasn't started yet", 64 + 2);
+        }
 
         var (_, key_addr) = parse_std_addr(sender_address);
-        
-        ;; добавить проверку на чейн
 
         var (value, found) = storage::list_participates~udict_add_get_ref?(256, key_addr, begin_cell().store_coins(msg_value).store_slice(sender_address).end_cell());
 
@@ -181,6 +192,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
         set_code(new_code);
         return ();
     }
+    throw(0xffff);
 }
 
 
@@ -197,52 +209,104 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     slice msg_inner_slice = msg_inner.begin_parse();  
     int game_number = msg_inner_slice~load_uint(32);
 
-    throw_unless(222, game_number == storage::game_number);
-    throw_if(666, storage::game_round == storage::stop_game_on_round);
+    throw_unless(222, storage::game_number == game_number);
+    throw_if(666, storage::stop_game_on_round == game_number);
     throw_unless(111, (storage::game_start_time + storage::game_time) <= now());
 
     accept_message();
+    ;; нужно продумать что если участников 0 или 1 
+    if (storage::participates_number == 0) { ;; заново запускаем таймер
 
-    custom_randomize();
-    randomize_lt();
-    int r = rand(storage::jackpot);
+        storage::list_participates = new_dict();
+        storage::jackpot = 0;
+        storage::participates_number = 0;
+        storage::game_number += 1;
+        storage::game_start_time = now();
+        storage::last_winner_address = address_none();
+        save_data();
+        return ();
 
-    int flag = 0;
-    int sum_bet = 0;
+    } elseif (storage::participates_number == 1) { ;; возращаем стредства
 
-    do {
         var (_, value, _) = storage::list_participates~udict_delete_get_min_ref?(256);
-        ~dump(value);
         slice payload = value.begin_parse();
-        sum_bet += payload~load_coins();
-        ~dump(sum_bet);
-        if (r < sum_bet) {
-            storage::last_winner_address = payload~load_msg_addr();
-            flag = -1;
+        payload~load_coins();
+        slice participate_address = payload~load_msg_addr();
+        raw_reserve(50000000, 0); ;; 0.05 ton 
+        send_message_with_sms(participate_address, 0, "Not enough player", 128 + 2);
+
+        storage::list_participates = new_dict();
+        storage::jackpot = 0;
+        storage::participates_number = 0;
+        storage::game_number += 1;
+        storage::game_start_time = now();
+        storage::last_winner_address = address_none();
+        save_data();
+        return ();
+
+    } else { ;; игра
+
+        custom_randomize();
+        randomize_lt();
+        int r = rand(storage::jackpot);
+
+        int flag = 0;
+        int sum_bet = 0;
+
+        do {
+            var (_, value, _) = storage::list_participates~udict_delete_get_min_ref?(256);
+            slice payload = value.begin_parse();
+            sum_bet += payload~load_coins();
+            if (r < sum_bet) {
+                storage::last_winner_address = payload~load_msg_addr();
+                flag = -1;
+            }
+        } until (flag == -1);
+
+        ;; сначала отправляем деньги если есть runner
+        ;; потом отправляем деньги владельцам
+        ;; финале отправляем деньги победителю 
+
+        if (in_msg_body.slice_empty?() == false) {
+            slice game_runner = msg_inner_slice~load_msg_addr(); ;; такой способ под вопросом 
+            int commission_runner = muldiv(storage::jackpot, storage::commission_game_runners, 10000); ;; добавить константу 3.2% = 320
+            storage::jackpot -= commission_runner;
+            send_message_with_sms(game_runner, commission_runner, "commission for runner", 2 + 1);
         }
-    } until (flag == -1);
 
-    ;; сначала отправляем деньги если есть валидатор 
-    ;; потом отправляем деньги владельцам
-    ;; финале отправляем деньги победителю 
+        int commission_admin = muldiv(storage::jackpot, storage::commission_game_admin, 10000);
+        send_message_with_sms(storage::admin_address, commission_admin, "commission for admin", 2 + 1);
 
-    if (in_msg_body.slice_empty?() == false) {
-        slice game_runner = msg_inner_slice~load_msg_addr();
-        int commission_runner = muldiv(storage::jackpot, storage::commission_game_runners, 10000); ;; добавить константу 3.2% = 320
-        storage::jackpot -= commission_runner;
-        send_message_with_sms(game_runner, commission_runner, "commission for runner", 2 + 1);
+        raw_reserve(50000000, 0); ;; 0.05 ton 
+        send_message_with_sms(storage::last_winner_address, 0, "You win", 128 + 2);
+
+        storage::list_participates = new_dict();
+        storage::jackpot = 0;
+        storage::participates_number = 0;
+        storage::game_number += 1;
+        storage::game_start_time = now();
+        save_data();
+        return ();
     }
+}
 
-    int commission_admin = muldiv(storage::jackpot, storage::commission_game_admin, 10000);
-    send_message_with_sms(storage::admin_address, commission_admin, "commission for admin", 2 + 1);
-
-    raw_reserve(50000000, 0); ;; 0.05 ton 
-    send_message_with_sms(storage::last_winner_address, 0, "You win", 128 + 2);
-
-    storage::list_participates = new_dict();
-    storage::jackpot = 0;
-    storage::max_participates = 0;
-    storage::game_number += 1;
-    storage::game_start_time = now();
-    save_data();
+(slice, int, int, int, int, int, int, int, int, int, int, int, int, slice, cell) get_storage_data() method_id {
+    load_data();
+    return (
+        storage::admin_address
+        storage::public_key
+        storage::commission_game_admin
+        storage::commission_game_runners
+        storage::min_bet
+        storage::max_bet
+        storage::max_participates
+        storage::participates_number
+        storage::game_time
+        storage::game_start_time
+        storage::game_round
+        storage::stop_game_on_round
+        storage::jackpot
+        storage::last_winner_address
+        storage::list_participates
+    );
 }
