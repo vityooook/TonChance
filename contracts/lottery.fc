@@ -1,9 +1,8 @@
 #include "imports/stdlib.fc";
 
-;; добавить возможность вывод токенов 
 ;; сделать красиивые комментарии к сообщениям 
 
-;; storage
+;; ===== STORAGE =====
 global slice storage::admin_address; ;; 267
 global int storage::public_key; ;; 256
 
@@ -18,15 +17,27 @@ global int storage::game_start_time; ;; 32
 global int storage::game_round; ;; 32
 global int storage::stop_game_on_round; ;; 32 
 global int storage::jackpot; ;; 124
-global slice storage::last_winner_address; ;; 267
+global slice storage::last_game_winner_address; ;; 267
 global cell storage::list_participates; ;; ref
-;; const 
+global cell storage::last_game_list_participates; ;; ref 
 
-;; errors 
+;; ===== CONST ===== 
+const int commission_divider = 10000;
+const int storage_commission = 50000000;
 
-;; ===== op-codes =====
+;; ===== ERRORS =====
+const int error::not_admin = 500;
+const int error::invalid_signature = 501;
+const int error::wrong_round = 502;
+const int error::game_is_not_over_yet = 503;
 
-;; fifting 
+;; ===== OP-CODES =====
+const int op::stop_game = 1;
+const int op::change_sittings = 2;
+const int op::change_admin = 3;
+const int op::update_code_and_data = 4;
+
+;; ===== FIFT =====
 tuple get_prev_block() asm "PREVKEYBLOCK";
 (cell, (cell, int)) ~udict_add_get_ref?(cell dict, int key_len, int index, cell value) asm(value index dict key_len) "DICTUADDGETREF" "NULLSWAPIF";
 (cell, int) udict_replace_ref?(cell dict, int key_len, int index, cell value) asm(value index dict key_len) "DICTUREPLACEREF";
@@ -38,7 +49,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     storage::admin_address = ds~load_msg_addr();
     storage::public_key = ds~load_coins();
 
-    slice ds2 = ds~load_ref().begin_parse();  ;; Bits = 815. Refs = 1.
+    slice ds2 = ds~load_ref().begin_parse();  ;; Bits = 815. Refs = 2.
     storage::commission_game_admin = ds2~load_uint(16);
     storage::commission_game_runners = ds2~load_uint(16);
     storage::min_bet = ds2~load_coins();
@@ -50,8 +61,9 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     storage::game_round = ds2~load_uint(32);
     storage::stop_game_on_round = ds2~load_uint(32);
     storage::jackpot = ds2~load_coins();
-    storage::last_winner_address = ds2~load_msg_addr();
+    storage::last_game_winner_address = ds2~load_msg_addr();
     storage::list_participates = ds2~load_dict();
+    storage::last_game_list_participates = ds2~load_dict();
 
     ds2.end_parse();
     ds.end_parse();
@@ -76,8 +88,9 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
                     .store_uint(storage::game_round, 32)
                     .store_uint(storage::stop_game_on_round, 32)
                     .store_coins(storage::jackpot)
-                    .store_slice(storage::last_winner_address)
+                    .store_slice(storage::last_game_winner_address)
                     .store_dict(storage::list_participates)
+                    .store_dict(storage::last_game_list_participates)
                 .end_cell())
         .end_cell()
     );
@@ -130,16 +143,16 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 
     if (op == 0) { ;; проверка на ставку и на количество участников
         if (storage::game_round == storage::stop_game_on_round) {
-            send_message_with_sms(sender_address, 0, "game on pause", 64 + 2);
+            send_message_with_sms(sender_address, 0, "Game paused 🔴", 64 + 2);
         }
         if ((storage::min_bet > msg_value) | (storage::max_bet < msg_value)) {
-            send_message_with_sms(sender_address, 0, "too little or too much TON", 64 + 2);
+            send_message_with_sms(sender_address, 0, "Too little or too much TON ❌", 64 + 2);
         }
         if (storage::participates_number > storage::max_participates) {
-            send_message_with_sms(sender_address, 0, "too many participants", 64 + 2);
+            send_message_with_sms(sender_address, 0, "Too many players 👥", 64 + 2);
         }
-        if (storage::game_start_time > now()) { ;; нужно подумать если игрок отправит деньги после игры 
-            send_message_with_sms(sender_address, 0, "the game hasn't started yet", 64 + 2);
+        if (storage::game_start_time > now()) {
+            send_message_with_sms(sender_address, 0, "Game starting soon ⏳", 64 + 2);
         }
 
         var (_, key_addr) = parse_std_addr(sender_address);
@@ -161,37 +174,39 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 
     ;; admin part
 
-    throw_unless(999, equal_slices_bits(sender_address, storage::admin_address));
+    throw_unless(error::not_admin, equal_slices_bits(sender_address, storage::admin_address));
 
-    if (op == 1) { ;; stop game
+    if (op == op::stop_game) { ;; stop game
         storage::stop_game_on_round = in_msg_body~load_uint(32);
         save_data();
         return ();
     }
 
-    if (op == 2) { ;; change basic sittings 
+    if (op == op::change_sittings) { ;; change basic sittings 
         storage::game_time = in_msg_body~load_uint(16);
         storage::min_bet = in_msg_body~load_coins();
         storage::max_bet = in_msg_body~load_coins();
         storage::max_participates = in_msg_body~load_uint(8);
-        storage::commission_game = in_msg_body~load_uint(16);
+        storage::commission_game_admin = in_msg_body~load_uint(16);
+        storage::commission_game_runners = in_msg_body~load_uint(16);
         storage::game_start_time = in_msg_body~load_uint(32);
         save_data();
         return ();
     }
 
-    if (op == 3) { ;; change admin
+    if (op == op::change_admin) { ;; change admin
         storage::admin_address = in_msg_body~load_msg_addr();
         save_data();
         return ();
     }
 
-    if (op == 4) { ;; update code and data
+    if (op == op::update_code_and_data) { ;; update code and data
         (cell new_data, cell new_code) = (in_msg_body~load_ref(), in_msg_body~load_ref());
         set_data(new_data);
         set_code(new_code);
         return ();
     }
+
     throw(0xffff);
 }
 
@@ -204,25 +219,26 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 
     load_data();
 
-    throw_unless(7777, check_signature(msg_inner_hash, signature, storage::public_key));
+    throw_unless(error::invalid_signature, check_signature(msg_inner_hash, signature, storage::public_key));
 
     slice msg_inner_slice = msg_inner.begin_parse();  
     int game_number = msg_inner_slice~load_uint(32);
 
-    throw_unless(222, storage::game_number == game_number);
-    throw_if(666, storage::stop_game_on_round == game_number);
-    throw_unless(111, (storage::game_start_time + storage::game_time) <= now());
+    throw_unless(error::invalid_signature, storage::game_round == game_number);
+    throw_if(error::wrong_round, storage::stop_game_on_round == game_number);
+    throw_unless(error::game_is_not_over_yet, (storage::game_start_time + storage::game_time) <= now());
 
     accept_message();
-    ;; нужно продумать что если участников 0 или 1 
+    
     if (storage::participates_number == 0) { ;; заново запускаем таймер
 
         storage::list_participates = new_dict();
+        storage::last_game_list_participates = storage::list_participates;
         storage::jackpot = 0;
         storage::participates_number = 0;
-        storage::game_number += 1;
+        storage::game_round += 1;
         storage::game_start_time = now();
-        storage::last_winner_address = address_none();
+        storage::last_game_winner_address = address_none();
         save_data();
         return ();
 
@@ -232,15 +248,16 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
         slice payload = value.begin_parse();
         payload~load_coins();
         slice participate_address = payload~load_msg_addr();
-        raw_reserve(50000000, 0); ;; 0.05 ton 
-        send_message_with_sms(participate_address, 0, "Not enough player", 128 + 2);
+        raw_reserve(storage_commission, 0); ;; 0.05 ton 
+        send_message_with_sms(participate_address, 0, "Need more players 🚶", 128 + 2);
 
         storage::list_participates = new_dict();
+        storage::last_game_list_participates = storage::list_participates;
         storage::jackpot = 0;
         storage::participates_number = 0;
-        storage::game_number += 1;
+        storage::game_round += 1;
         storage::game_start_time = now();
-        storage::last_winner_address = address_none();
+        storage::last_game_winner_address = address_none();
         save_data();
         return ();
 
@@ -258,7 +275,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
             slice payload = value.begin_parse();
             sum_bet += payload~load_coins();
             if (r < sum_bet) {
-                storage::last_winner_address = payload~load_msg_addr();
+                storage::last_game_winner_address = payload~load_msg_addr();
                 flag = -1;
             }
         } until (flag == -1);
@@ -269,44 +286,46 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 
         if (in_msg_body.slice_empty?() == false) {
             slice game_runner = msg_inner_slice~load_msg_addr(); ;; такой способ под вопросом 
-            int commission_runner = muldiv(storage::jackpot, storage::commission_game_runners, 10000); ;; добавить константу 3.2% = 320
+            int commission_runner = muldiv(storage::jackpot, storage::commission_game_runners, commission_divider); ;; добавить константу 3.2% = 320
             storage::jackpot -= commission_runner;
-            send_message_with_sms(game_runner, commission_runner, "commission for runner", 2 + 1);
+            send_message_with_sms(game_runner, commission_runner, "Runner fee 🏃", 2 + 1);
         }
 
-        int commission_admin = muldiv(storage::jackpot, storage::commission_game_admin, 10000);
-        send_message_with_sms(storage::admin_address, commission_admin, "commission for admin", 2 + 1);
+        int commission_admin = muldiv(storage::jackpot, storage::commission_game_admin, commission_divider);
+        send_message_with_sms(storage::admin_address, commission_admin, "Admin fee 💰", 2 + 1);
 
-        raw_reserve(50000000, 0); ;; 0.05 ton 
-        send_message_with_sms(storage::last_winner_address, 0, "You win", 128 + 2);
+        raw_reserve(storage_commission, 0); ;; 0.05 ton 
+        send_message_with_sms(storage::last_game_winner_address, 0, "You win 🎉", 128 + 2);
 
+        storage::last_game_list_participates = storage::list_participates;
         storage::list_participates = new_dict();
         storage::jackpot = 0;
         storage::participates_number = 0;
-        storage::game_number += 1;
+        storage::game_round += 1;
         storage::game_start_time = now();
         save_data();
         return ();
     }
 }
 
-(slice, int, int, int, int, int, int, int, int, int, int, int, int, slice, cell) get_storage_data() method_id {
+(slice, int, int, int, int, int, int, int, int, int, int, int, int, slice, cell, cell) get_storage_data() method_id {
     load_data();
     return (
-        storage::admin_address
-        storage::public_key
-        storage::commission_game_admin
-        storage::commission_game_runners
-        storage::min_bet
-        storage::max_bet
-        storage::max_participates
-        storage::participates_number
-        storage::game_time
-        storage::game_start_time
-        storage::game_round
-        storage::stop_game_on_round
-        storage::jackpot
-        storage::last_winner_address
-        storage::list_participates
+        storage::admin_address,
+        storage::public_key,
+        storage::commission_game_admin,
+        storage::commission_game_runners,
+        storage::min_bet,
+        storage::max_bet,
+        storage::max_participates,
+        storage::participates_number,
+        storage::game_time,
+        storage::game_start_time,
+        storage::game_round,
+        storage::stop_game_on_round,
+        storage::jackpot,
+        storage::last_game_winner_address,
+        storage::list_participates,
+        storage::last_game_list_participates
     );
 }
