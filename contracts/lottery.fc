@@ -1,6 +1,5 @@
 #include "imports/stdlib.fc";
 
-;; сделать красиивые комментарии к сообщениям 
 
 ;; ===== STORAGE =====
 global slice storage::admin_address; ;; 267
@@ -85,8 +84,8 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
                     .store_uint(storage::participates_number, 8)
                     .store_uint(storage::game_time, 32)
                     .store_uint(storage::game_start_time, 32)
-                    .store_uint(storage::game_round, 32)
-                    .store_uint(storage::stop_game_on_round, 32)
+                    .store_uint(storage::game_round, 32) ;; отcчет с 1 
+                    .store_uint(storage::stop_game_on_round, 32) ;; 0
                     .store_coins(storage::jackpot)
                     .store_slice(storage::last_game_winner_address)
                     .store_dict(storage::list_participates)
@@ -148,7 +147,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
         if ((storage::min_bet > msg_value) | (storage::max_bet < msg_value)) {
             send_message_with_sms(sender_address, 0, "Too little or too much TON ❌", 64 + 2);
         }
-        if (storage::participates_number > storage::max_participates) {
+        if (storage::participates_number >= storage::max_participates) {
             send_message_with_sms(sender_address, 0, "Too many players 👥", 64 + 2);
         }
         if (storage::game_start_time > now()) {
