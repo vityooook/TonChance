@@ -1,4 +1,5 @@
-import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Sender, SendMode, Dictionary, toNano } from '@ton/core';
+import { Address, beginCell, Cell, Contract, contractAddress, ContractProvider, Sender, SendMode, Dictionary, toNano, DictionaryValue } from '@ton/core';
+import { sign } from "@ton/crypto";
 
 export type LotteryConfig = {
     admin: Address;
@@ -36,6 +37,29 @@ export function lotteryConfigToCell(config: LotteryConfig): Cell {
         )
     .endCell();
 }
+
+export type MyDictionaryValue = {
+    bet: bigint;
+    address: Address;
+}
+
+function myDictParser(): DictionaryValue<MyDictionaryValue> {
+    return {
+        serialize: (src, buidler) => {
+            buidler
+                .storeCoins(src.bet) 
+                .storeAddress(src.address)    
+                .endCell();
+        },
+        parse: (src) => {
+            return {
+                bet: src.loadCoins(),   
+                address: src.loadAddress(),  
+            };
+        }
+    }
+}
+
 
 export class Lottery implements Contract {
     constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) {}
@@ -130,19 +154,83 @@ export class Lottery implements Contract {
 
     async sendStartLottery(
         provider: ContractProvider,
+        secretKey: Buffer,
         opts: {
-            game_number: number;
+            gameNumber: number;
+            // runnerAddress: Address;
         }
     ) {
+        const messageInner = beginCell()
+            .storeUint(opts.gameNumber, 32)
+            .endCell();
        
-        await provider.external(
-            beginCell()
-                .storeRef(
-                    beginCell()
-                        .storeUint(opts.game_number, 32)
+            await provider.external(
+                beginCell()
+                    .storeRef(messageInner)
+                    .storeBuffer(sign(messageInner.hash(), secretKey))
                     .endCell()
-                )
-            .endCell()
-        );
+            );
     }
+
+    async getStorageData(provider: ContractProvider): Promise<any> {
+        let { stack } = await provider.get('get_storage_data', []);
+        let res: any = {
+            adminAddress: stack.readAddress(),
+            publicKey: stack.readBigNumber(),
+            commissionAdmin: stack.readBigNumber(),
+            commissionRunner: stack.readBigNumber(),
+            minBet: stack.readBigNumber(),
+            maxBet: stack.readBigNumber(),
+            maxParticipates: stack.readBigNumber(),
+            participatesNumber: stack.readBigNumber(),
+            gameTime: stack.readBigNumber(),
+            gameStartTime: stack.readBigNumber(),
+            gameRound: stack.readBigNumber(),
+            stopGameOnRound: stack.readBigNumber(),
+            jackpot: stack.readBigNumber(),
+            lastWinnerAddress: stack.readAddress(),
+            listParticipates: stack.readCellOpt(),
+            lastListParticipates: stack.readCellOpt()
+        }
+
+        if (res.lastListParticipates) {
+            res.lastListParticipates =res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
+        }
+    }
+
+    async getStorageDвata(provider: ContractProvider) {
+        let { stack } = await provider.get('get_storage_data', []);
+        let res: any = {
+            inited: stack.readBoolean(),
+            poolId: stack.readBigNumber(),
+            adminAddress: stack.readAddress(),
+            creatorAddress: stack.readAddress(),
+            stakeWalletCode: stack.readCell(),
+            lockWalletAddress: stack.readAddress(),
+            tvl: stack.readBigNumber(),
+            tvlWithMultipliers: stack.readBigNumber(),
+            minDeposit: stack.readBigNumber(),
+            maxDeposit: stack.readBigNumber(),
+            rewardJettons: stack.readCellOpt(),
+            rewardJettonsCount: stack.readBigNumber(),
+            rewardsDepositsCount: stack.readBigNumber(),
+            lockPeriods: stack.readCellOpt(),
+            whitelist: stack.readCellOpt(),
+            unstakeFee: stack.readBigNumber(),
+            collectedCommissions: stack.readBigNumber(),
+            rewardsCommission: stack.readBigNumber(),
+            version: stack.readBigNumber(),
+        }
+        
+        if (res.rewardJettons) {
+            res.rewardJettons = res.rewardJettons.beginParse().loadDictDirect(Dictionary.Keys.Address(), {});
+        }
+        if (res.lockPeriods) {
+            res.lockPeriods = res.lockPeriods.beginParse().loadDictDirect(Dictionary.Keys.Uint(32), lockPeriodsValueParser());
+        }
+        if (res.whitelist) {
+            res.whitelist = res.whitelist.beginParse().loadDictDirect(Dictionary.Keys.Address(), Dictionary.Values.Bool());
+        }
+        let k: StakingPoolConfig = res;
+        
 }
