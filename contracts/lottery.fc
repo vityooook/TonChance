@@ -46,7 +46,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
 () load_data() impure inline {
     slice ds = get_data().begin_parse(); ;; Bits = 523. Refs = 1.
     storage::admin_address = ds~load_msg_addr();
-    storage::public_key = ds~load_coins();
+    storage::public_key = ds~load_uint(256);
 
     slice ds2 = ds~load_ref().begin_parse();  ;; Bits = 815. Refs = 2.
     storage::commission_game_admin = ds2~load_uint(16);
@@ -137,7 +137,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     int op = 0;
 
     if (in_msg_body.slice_empty?() == false) {
-        op = in_msg_body~load_op();
+        op = in_msg_body~load_uint(32); ;; op-code
     }
 
     if (op == 0) { ;; проверка на ставку и на количество участников

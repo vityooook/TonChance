@@ -3,7 +3,7 @@ import { sign } from "@ton/crypto";
 
 export type LotteryConfig = {
     admin: Address;
-    publicKey: number;
+    publicKey: Buffer;
     commissionGameAdmin: number;
     commissionGameRunners: number;
     minBet: bigint;
@@ -16,7 +16,7 @@ export type LotteryConfig = {
 export function lotteryConfigToCell(config: LotteryConfig): Cell {
     return beginCell()
         .storeAddress(config.admin)
-        .storeUint(config.publicKey, 256)
+        .storeBuffer(config.publicKey)
         .storeRef(
             beginCell()
                 .storeUint(config.commissionGameAdmin, 16)
@@ -24,10 +24,10 @@ export function lotteryConfigToCell(config: LotteryConfig): Cell {
                 .storeCoins(config.maxBet)
                 .storeCoins(config.maxBet)
                 .storeUint(config.maxParticipates, 8)
-                .storeUint(0, 32)
+                .storeUint(0, 8)
                 .storeUint(config.gameTime, 32)
                 .storeUint(config.gameStartTime, 32)
-                .storeUint(1, 32)
+                .storeUint(1, 32) /// start fronm first round 
                 .storeUint(0, 32)
                 .storeCoins(0)
                 .storeAddress(null)
@@ -78,7 +78,10 @@ export class Lottery implements Contract {
         await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell().endCell(),
+            body: beginCell() // just for accept ton 
+                .storeUint(3, 32)
+                .storeAddress(via.address)
+            .endCell(),
         });
     }
 
@@ -193,44 +196,14 @@ export class Lottery implements Contract {
             lastListParticipates: stack.readCellOpt()
         }
 
-        if (res.lastListParticipates) {
-            res.lastListParticipates =res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
+        if (res.listParticipates) {
+            res.listParticipates = res.listParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
         }
+
+        if (res.lastListParticipates) {
+            res.lastListParticipates = res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
+        }
+        return res;
     }
 
-    async getStorageDвata(provider: ContractProvider) {
-        let { stack } = await provider.get('get_storage_data', []);
-        let res: any = {
-            inited: stack.readBoolean(),
-            poolId: stack.readBigNumber(),
-            adminAddress: stack.readAddress(),
-            creatorAddress: stack.readAddress(),
-            stakeWalletCode: stack.readCell(),
-            lockWalletAddress: stack.readAddress(),
-            tvl: stack.readBigNumber(),
-            tvlWithMultipliers: stack.readBigNumber(),
-            minDeposit: stack.readBigNumber(),
-            maxDeposit: stack.readBigNumber(),
-            rewardJettons: stack.readCellOpt(),
-            rewardJettonsCount: stack.readBigNumber(),
-            rewardsDepositsCount: stack.readBigNumber(),
-            lockPeriods: stack.readCellOpt(),
-            whitelist: stack.readCellOpt(),
-            unstakeFee: stack.readBigNumber(),
-            collectedCommissions: stack.readBigNumber(),
-            rewardsCommission: stack.readBigNumber(),
-            version: stack.readBigNumber(),
-        }
-        
-        if (res.rewardJettons) {
-            res.rewardJettons = res.rewardJettons.beginParse().loadDictDirect(Dictionary.Keys.Address(), {});
-        }
-        if (res.lockPeriods) {
-            res.lockPeriods = res.lockPeriods.beginParse().loadDictDirect(Dictionary.Keys.Uint(32), lockPeriodsValueParser());
-        }
-        if (res.whitelist) {
-            res.whitelist = res.whitelist.beginParse().loadDictDirect(Dictionary.Keys.Address(), Dictionary.Values.Bool());
-        }
-        let k: StakingPoolConfig = res;
-        
 }
