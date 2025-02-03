@@ -21,7 +21,7 @@ export function lotteryConfigToCell(config: LotteryConfig): Cell {
             beginCell()
                 .storeUint(config.commissionGameAdmin, 16)
                 .storeUint(config.commissionGameRunners, 16)
-                .storeCoins(config.maxBet)
+                .storeCoins(config.minBet)
                 .storeCoins(config.maxBet)
                 .storeUint(config.maxParticipates, 8)
                 .storeUint(0, 8)
@@ -191,18 +191,18 @@ export class Lottery implements Contract {
             gameRound: stack.readBigNumber(),
             stopGameOnRound: stack.readBigNumber(),
             jackpot: stack.readBigNumber(),
-            lastWinnerAddress: stack.readAddress(),
+            lastWinnerAddress: stack.readAddressOpt(),
             listParticipates: stack.readCellOpt(),
             lastListParticipates: stack.readCellOpt()
         }
 
-        if (res.listParticipates) {
-            res.listParticipates = res.listParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
-        }
+        // if (res.listParticipates) {
+        //     res.listParticipates = res.listParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
+        // }
 
-        if (res.lastListParticipates) {
-            res.lastListParticipates = res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
-        }
+        // if (res.lastListParticipates) {
+        //     res.lastListParticipates = res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
+        // }
         return res;
     }
 

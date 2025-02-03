@@ -143,15 +143,19 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     if (op == 0) { ;; проверка на ставку и на количество участников
         if (storage::game_round == storage::stop_game_on_round) {
             send_message_with_sms(sender_address, 0, "Game paused 🔴", 64 + 2);
+            return ();
         }
         if ((storage::min_bet > msg_value) | (storage::max_bet < msg_value)) {
             send_message_with_sms(sender_address, 0, "Too little or too much TON ❌", 64 + 2);
+            return ();
         }
         if (storage::participates_number >= storage::max_participates) {
             send_message_with_sms(sender_address, 0, "Too many players 👥", 64 + 2);
+            return ();
         }
         if (storage::game_start_time > now()) {
             send_message_with_sms(sender_address, 0, "Game starting soon ⏳", 64 + 2);
+            return ();
         }
 
         var (_, key_addr) = parse_std_addr(sender_address);

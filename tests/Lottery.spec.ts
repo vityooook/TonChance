@@ -4,6 +4,7 @@ import { Lottery } from '../wrappers/Lottery';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
 import { getSecureRandomBytes, keyPairFromSeed, keyPairFromSecretKey} from "@ton/crypto";
+import { exitCode } from 'process';
 
 describe('Lottery', () => {
 
@@ -64,14 +65,31 @@ describe('Lottery', () => {
             success: true,
         });
 
-        await blockchain.setVerbosityForAddress(lottery.address, {
-            blockchainLogs: false,
-            vmLogs: 'vm_logs',
-            debugLogs: true
-        })
+        // await blockchain.setVerbosityForAddress(lottery.address, {
+        //     blockchainLogs: false,
+        //     vmLogs: 'vm_logs',
+        //     debugLogs: true
+        // })
     });
 
-    it("all good ", async () => {
+    it("place bets and start game", async () => {
+
+        const storageBefore = await lottery.getStorageData();
+
+        await lottery.sendBet(participate1.getSender(), toNano("1"))
+        // ton should come back because the time is wrong
+        expect(storageBefore.jackpot).toEqual((await lottery.getStorageData()).jackpot);
+
+        blockchain.now = 20
+
+        await lottery.sendBet(participate1.getSender(), toNano("1"))
+
+        const storageAfter = await lottery.getStorageData();
+
+        console.log(storageAfter)
+
+        
+        
 
     });
 });
