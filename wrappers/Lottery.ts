@@ -196,13 +196,13 @@ export class Lottery implements Contract {
             lastListParticipates: stack.readCellOpt()
         }
 
-        // if (res.listParticipates) {
-        //     res.listParticipates = res.listParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
-        // }
+        if (res.listParticipates) {
+            res.listParticipates = res.listParticipates.beginParse().loadDictDirect(Dictionary.Keys.BigUint(256), myDictParser())
+        }
 
-        // if (res.lastListParticipates) {
-        //     res.lastListParticipates = res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.Uint(256), myDictParser())
-        // }
+        if (res.lastListParticipates) {
+            res.lastListParticipates = res.lastListParticipates.beginParse().loadDictDirect(Dictionary.Keys.BigUint(256), myDictParser())
+        }
         return res;
     }
 
