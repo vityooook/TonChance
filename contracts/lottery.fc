@@ -153,7 +153,7 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
             send_message_with_sms(sender_address, 0, "Too little or too much TON ❌", 64 + 2);
             return ();
         }
-        if (storage::participates_number >= storage::max_participates) {
+        if (storage::participates_number >= storage::max_participates) { ;; there is a mini-problem => if there are already 100 participants, the participant cannot scale the bet by adding a ton
             send_message_with_sms(sender_address, 0, "Too many players 👥", 64 + 2);
             return ();
         }
