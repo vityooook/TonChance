@@ -6,6 +6,13 @@ import { compile } from '@ton/blueprint';
 import { getSecureRandomBytes, keyPairFromSeed, KeyPair } from "@ton/crypto";
 import { exitCode } from 'process';
 
+async function disableConsoleError(callback: () => Promise<void>): Promise<void> {
+    const errorsHandler = console.error;
+    console.error = () => {};
+    await callback();
+    console.error = errorsHandler;
+}
+
 describe('Lottery', () => {
 
     
@@ -85,10 +92,10 @@ describe('Lottery', () => {
 
         expect(storageBefore.participatesNumber).toBeLessThan((await lottery.getStorageData()).participatesNumber);
 
-        blockchain.now = 20 + Number(storageBefore.gameTime);
+        blockchain.now = Number(storageBefore.gameStartTime) + Number(storageBefore.gameTime);
 
         const startGame = await lottery.sendStartLottery(keyPair.secretKey, {
-            gameNumber: Number(storageBefore.gameRound)
+            gameRound: Number(storageBefore.gameRound)
         });
 
         const storageAfter = await lottery.getStorageData();
@@ -157,7 +164,7 @@ describe('Lottery', () => {
     it("check number of participants", async () => {
         const participants = [];
     
-        for (let i = 0; i < 99; i++) {
+        for (let i = 0; i < 100; i++) {
             const participant = await blockchain.treasury(`${i}`); 
             participants.push(participant);
         }
@@ -189,7 +196,7 @@ describe('Lottery', () => {
         blockchain.now = 20 + Number(storageBefore.gameTime);
 
         const startGame = await lottery.sendStartLottery(keyPair.secretKey, {
-            gameNumber: Number(storageBefore.gameRound)
+            gameRound: Number(storageBefore.gameRound)
         });
 
         printTransactionFees(startGame.transactions)
@@ -200,10 +207,58 @@ describe('Lottery', () => {
     it("check pause game", async () => {
         const storageBefore = await lottery.getStorageData();
 
-        blockchain.now = Number(storageBefore.gameStartTime);
+        await lottery.sendStopGame(admin.getSender(), 3);
 
+        blockchain.now = Number((await lottery.getStorageData()).gameStartTime + storageBefore.gameTime);
+        var startGame = await lottery.sendStartLottery(keyPair.secretKey, {gameRound: Number(storageBefore.gameRound)});
+
+        expect(startGame.transactions).toHaveTransaction({
+            success: true
+        });
+
+        blockchain.now = Number((await lottery.getStorageData()).gameStartTime + storageBefore.gameTime);
+        var startGame = await lottery.sendStartLottery(keyPair.secretKey, {gameRound: Number(storageBefore.gameRound) + 1});
+
+        expect(startGame.transactions).toHaveTransaction({
+            success: true
+        });
+
+        const firstBet = await lottery.sendBet(participate1.getSender(), toNano("1"))
+
+        expect(firstBet.transactions).toHaveTransaction({
+            from: lottery.address,
+            to: participate1.address,
+            success: true
+        });
+
+        blockchain.now = Number((await lottery.getStorageData()).gameStartTime + storageBefore.gameTime);
+
+        // catch error before accept_message
+        await disableConsoleError(() =>
+            expect(lottery.sendStartLottery(keyPair.secretKey, {gameRound: Number(storageBefore.gameRound) + 2})).rejects.toThrow()
+        );
+
+        //  теперь снова включаем игру и тестируем ее 
+
+        await lottery.sendStopGame(admin.getSender(), 0);
 
         const storageAfter = await lottery.getStorageData();
 
+        await lottery.sendBet(participate1.getSender(), toNano("1"));
+        await lottery.sendBet(participate2.getSender(), toNano("4"));
+        await lottery.sendBet(participate3.getSender(), toNano("0.5"));
+
+        expect(storageAfter.participatesNumber).toBeLessThan((await lottery.getStorageData()).participatesNumber);
+
+        startGame = await lottery.sendStartLottery(keyPair.secretKey, {
+            gameRound: Number(storageAfter.gameRound)
+        });
+
+        expect(startGame.transactions).toHaveTransaction({
+            success: true
+        })
+
     });
+
+    
 });

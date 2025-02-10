@@ -159,12 +159,12 @@ export class Lottery implements Contract {
         provider: ContractProvider,
         secretKey: Buffer,
         opts: {
-            gameNumber: number;
+            gameRound: number;
             // runnerAddress: Address;
         }
     ) {
         const messageInner = beginCell()
-            .storeUint(opts.gameNumber, 32)
+            .storeUint(opts.gameRound, 32)
             .endCell();
        
             await provider.external(

@@ -28,7 +28,8 @@ const int storage_commission = 50000000;
 const int error::not_admin = 500;
 const int error::invalid_signature = 501;
 const int error::wrong_round = 502;
-const int error::game_is_not_over_yet = 503;
+const int error::game_pause = 503;
+const int error::game_is_not_over_yet = 504;
 
 ;; ===== OP-CODES =====
 const int op::stop_game = 1;
@@ -233,8 +234,8 @@ tuple get_prev_block() asm "PREVKEYBLOCK";
     slice msg_inner_slice = msg_inner.begin_parse();  
     int game_number = msg_inner_slice~load_uint(32);
 
-    throw_unless(error::invalid_signature, storage::game_round == game_number);
-    throw_if(error::wrong_round, storage::stop_game_on_round == game_number);
+    throw_unless(error::wrong_round, storage::game_round == game_number);
+    throw_if(error::game_pause, storage::stop_game_on_round == game_number);
     throw_unless(error::game_is_not_over_yet, (storage::game_start_time + storage::game_time) <= now());
 
     accept_message();
