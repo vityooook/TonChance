@@ -153,27 +153,35 @@ export class Lottery implements Contract {
         });
     }
 
-    // нужно добавить гет метод и external транзакцию
-
     async sendStartLottery(
         provider: ContractProvider,
         secretKey: Buffer,
         opts: {
             gameRound: number;
-            // runnerAddress: Address;
+            runnerAddress?: Address;
         }
     ) {
-        const messageInner = beginCell()
-            .storeUint(opts.gameRound, 32)
-            .endCell();
-       
-            await provider.external(
-                beginCell()
-                    .storeRef(messageInner)
-                    .storeBuffer(sign(messageInner.hash(), secretKey))
-                    .endCell()
-            );
+        let messageInner;
+    
+        if (opts.runnerAddress) {
+            messageInner = beginCell()
+                .storeUint(opts.gameRound, 32)
+                .storeAddress(opts.runnerAddress)
+                .endCell();
+        } else {
+            messageInner = beginCell()
+                .storeUint(opts.gameRound, 32)
+                .endCell();
+        }
+    
+        await provider.external(
+            beginCell()
+                .storeRef(messageInner)
+                .storeBuffer(sign(messageInner.hash(), secretKey))
+                .endCell()
+        );
     }
+    
 
     async getStorageData(provider: ContractProvider): Promise<any> {
         let { stack } = await provider.get('get_storage_data', []);
