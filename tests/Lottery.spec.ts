@@ -1,5 +1,5 @@
 import { Blockchain, SandboxContract, TreasuryContract, internal, printTransactionFees } from '@ton/sandbox';
-import { Cell, toNano } from '@ton/core';
+import { beginCell, Cell, toNano } from '@ton/core';
 import { Lottery } from '../wrappers/Lottery';
 import '@ton/test-utils';
 import { compile } from '@ton/blueprint';
@@ -260,5 +260,52 @@ describe('Lottery', () => {
 
     });
 
+    it("should change basic sittings", async () => {
+
+        const opts = {
+            gameTime: 12,
+            minBet: toNano("10"),
+            maxBet: toNano("100"),
+            maxParticipates: 11,
+            commissionAdmin: 1000,
+            commissionRunner: 1002,
+            gameStartTime: 400
+        }
+
+        await lottery.sendChangeSittings(admin.getSender(), {
+            gameTime: opts.gameTime,
+            minBet: opts.minBet,
+            maxBet: opts.maxBet,
+            maxParticipates: opts.maxParticipates,
+            commissionAdmin: opts.commissionAdmin,
+            commissionRunner: opts.commissionRunner,
+            gameStartTime: opts.gameStartTime
+        });
+        
+        const storageAfter = await lottery.getStorageData();
+
+        expect(storageAfter.gameTime).toEqual(BigInt(opts.gameTime));
+        expect(storageAfter.minBet).toEqual(BigInt(opts.minBet))
+        expect(storageAfter.maxBet).toEqual(BigInt(opts.maxBet))
+        expect(storageAfter.maxParticipates).toEqual(BigInt(opts.maxParticipates))
+        expect(storageAfter.commissionAdmin).toEqual(BigInt(opts.commissionAdmin))
+        expect(storageAfter.commissionRunner).toEqual(BigInt(opts.commissionRunner))
+        expect(storageAfter.gameStartTime).toEqual(BigInt(opts.gameStartTime))
+    });
+
     
+    it("should change admin and (code; data)", async () => {
+        await lottery.sendChangeAdmin(admin.getSender(), participate1.address);
+
+        const storageAfter = await lottery.getStorageData();
+
+        expect(storageAfter.adminAddress).toEqualAddress(participate1.address);
+
+        const changeCodeData = await lottery.sendUpdateCodeAndData(participate1.getSender(), beginCell().endCell(), beginCell().endCell());
+
+        expect(changeCodeData.transactions).toHaveTransaction({
+            success: true
+        })
+    });
+
 });
