@@ -12,7 +12,7 @@ export async function run(provider: NetworkProvider) {
             commissionGameAdmin: 400, // 4%
             commissionGameRunners: 100, // 1%
             minBet: toNano("0.25"),
-            maxBet: toNano("2"),
+            maxBet: toNano("20"),
             maxParticipates: 100,
             gameTime: 120, // 2 min
             gameStartTime: Math.floor(Date.now() / 1000)

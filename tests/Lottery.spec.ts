@@ -340,12 +340,6 @@ describe('Lottery', () => {
 
     it("should pay commission for runner", async () => {
 
-        await blockchain.setVerbosityForAddress(lottery.address, {
-            blockchainLogs: false,
-            vmLogs: 'vm_logs',
-            debugLogs: true
-        })
-        
         const storageBefore = await lottery.getStorageData();
 
         blockchain.now = Number(storageBefore.gameStartTime);
